@@ -22,20 +22,20 @@ This custom implementation of a facenet_pytorch allows a dynamically updatable d
 #### Specific usecase
 - [requests]()
 
+<h2 style="text-align: center;">Getting it running</h2>
 
-## Getting it running
-### Environment setup
+### 1. Environment setup
 
 This code has been developped on Python 3.11.4 with CUDA 12.1. To make sure everything works accordingly, setup an environment using these specified versions.
 
-#### Install specific pytorch modules version
+#### pytorch + torchvision: Install specific modules version
 ```bash
 pip3 install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
 ```
 
-#### Build and install ndi-python for Python 3.11.4
+#### ndi-python: Build and install  for Python 3.11.4
 
-In order to run NDIlib on Python 3.11.4, you need to build it yourself.
+In order to run NDIlib on Python 3.11.4, you need to build it yourself. CMake is needed for this operation.
 
 1. Clone the repository to a local directory and cd to it
 
