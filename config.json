@@ -1,0 +1,9 @@
+{
+    "cv_show_render": false,
+    "input_width": 1920,
+    "input_height": 1080,
+    "output_width": 1920,
+    "output_height": 1080,
+    "dataset_folder": "data",
+    "camera_id": 1
+}

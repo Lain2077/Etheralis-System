@@ -1,0 +1,10 @@
+facenet_pytorch==2.5.3
+numpy==1.26.4
+opencv_contrib_python_rolling==4.7.0.20230528
+Pillow==10.1.0
+Pillow==10.3.0
+python_osc==1.8.3
+Requests==2.31.0
+torch==2.2.2+cu121
+torchvision==0.17.2+cu121
+opencv_python==4.8.0.76

@@ -1,3 +1,6 @@
+import json
+import signal
+import sys
 import cv2
 from facenet_pytorch import MTCNN, InceptionResnetV1
 from fast_mtcnn import FastMTCNN
@@ -12,16 +15,90 @@ from torch.utils.data import DataLoader
 from PIL import Image
 import numpy as np
 import requests
+import curses
 
-#CONFIG======================================================
-input_width = 1920
-input_height = 1080
+## init curses
+#win = curses.initscr()
+#win.clear()
+#client_win = win.subwin(16, curses.COLS-1, 0, 0)
+#log_win = win.subwin(18, 0)
+#log_win.scrollok(True)
+#win.hline(17,0,"-",curses.COLS)
+#win.refresh()
+def draw_title(win, title):
+    # Clear any existing title
+    win.clear()
+    
+    # Get window dimensions
+    height, width = win.getmaxyx()
+    
+    # Create a sub-window for the title
+    title_win = win.subwin(3, width - 2, 0, 1)  # Height: 3, Width: full screen - 2, Position: (0,1)
+    
+    # Initialize color for title background
+    title_win.bkgd(curses.color_pair(1))  # Set background color (color pair 1)
+    
+    # Draw a box around the title window
+    title_win.box()
+    
+    # Add the title text centered in the box
+    title_text = title.center(width - 2)  # Center the title based on the window width
+    title_win.addstr(1, 1, title_text)  # Draw title at (1, 1) inside the title window
+    
+    # Refresh the title window to show changes
+    title_win.refresh()
 
-output_width = 1920
-output_height = 1080
+def display_interface(client_win, log_win, faces, current_detected_names, status, cv2_device, torch_device):
+    # Clear windows
+    client_win.clear()
+    log_win.clear()
 
-dataset_folder = 'data'
+    # Display each line with a different color
+    client_win.addstr(0, 0, f"Known faces in frame: {current_detected_names}", curses.color_pair(1))  # Green
+    client_win.addstr(1, 0, f"Detected Faces: {len(faces)}", curses.color_pair(2))                   # Blue
+    client_win.addstr(2, 0, f"Status: {status}", curses.color_pair(3))                               # Red
+    client_win.addstr(3, 0, f"OpenCV Device: {cv2_device}", curses.color_pair(4))                    # Yellow
+    client_win.addstr(4, 0, f"Torch Device: {torch_device}", curses.color_pair(5))                   # Cyan
 
+    # Refresh windows
+    client_win.refresh()
+    log_win.refresh()
+
+# Initialize curses and create windows
+win = curses.initscr()
+curses.start_color()
+curses.curs_set(0)
+win.clear()
+
+curses.start_color()
+curses.curs_set(0)  # Hide cursor
+curses.init_pair(1, curses.COLOR_GREEN, curses.COLOR_BLACK)  # Green
+curses.init_pair(2, curses.COLOR_BLUE, curses.COLOR_BLACK)   # Blue
+curses.init_pair(3, curses.COLOR_RED, curses.COLOR_BLACK)    # Red
+curses.init_pair(4, curses.COLOR_YELLOW, curses.COLOR_BLACK) # Yellow
+curses.init_pair(5, curses.COLOR_CYAN, curses.COLOR_BLACK)   # Cyan
+
+# Initial window setup
+height, width = win.getmaxyx()
+client_win = win.subwin(min(16, height - 3), width - 1, 0, 0)
+log_win = win.subwin(height - 17, width - 1, 17, 0)
+log_win.scrollok(True)
+win.hline(16, 0, "-", width)
+
+draw_title(win, "Face Recognition System")
+
+# Load and parse the JSON configuration file
+with open('config.json', 'r') as f:
+    config = json.load(f)
+
+# Assign the values from JSON config to Python variables
+cv_show_render = config['cv_show_render']
+input_width = config['input_width']
+input_height = config['input_height']
+output_width = config['output_width']
+output_height = config['output_height']
+dataset_folder = config['dataset_folder']
+camera_id = config['camera_id']
 
 #SPECIFIFIC USECASES FUNCTIONS================================
 
@@ -36,6 +113,32 @@ def checkCamID(cen_x, cen_y):
         return 3
     elif cen_x > ndi_width/2 and cen_y > ndi_height/2:
         return 4
+
+# Signal handler for graceful shutdown
+def signal_handler(sig, frame):
+    print("Signal received, shutting down...")
+    # Clean up NDI resources
+    cleanup_ndi()
+    # Release the camera
+    cap.release()
+    # Close any OpenCV windows
+    cv2.destroyAllWindows()
+    # Shut down the OSC server
+    server.shutdown()
+    server.server_close()
+    # Exit the program
+    sys.exit(0)
+
+# Register signal handler for SIGINT
+signal.signal(signal.SIGINT, signal_handler)
+
+# NDI Cleanup Function
+def cleanup_ndi():
+    global ndi_send
+    if ndi_send:
+        ndi.send_destroy(ndi_send)
+        ndi_send = None
+
     
 # Function to send logs to DC webhook
 
@@ -132,8 +235,8 @@ ndi_height = output_height
 
 # CUDA SUPPORT CHECK FOR PYTORCH AND OPENCV ==========================
 cv2_cuda_enabled = cv2.cuda.getCudaEnabledDeviceCount() > 0
-cv2_device = "CUDA" if cv2_cuda_enabled else "CPU"
-torch_device = 'CUDA' if torch.cuda.is_available() else 'CPU'
+cv2_device = "cuda" if cv2_cuda_enabled else "cpu"
+torch_device = "cuda" if torch.cuda.is_available() else "cpu"
 
 # RESNET AND MTCNN INITIATION ========================================
 
@@ -266,17 +369,15 @@ for name in face_presence.keys():
     osc_client.send_message(f"/{name}_Cam", 0)
 
 # CV2 CAMERA INITIATION ============================================
-cap = cv2.VideoCapture(0)
+cap = cv2.VideoCapture(camera_id)
 threshold_distance = 0.9
 
 cap.set(cv2.CAP_PROP_FRAME_WIDTH, input_width)
 cap.set(cv2.CAP_PROP_FRAME_HEIGHT, input_height)
 
 # LOG DISPLAY INITIATION ===========================================
-print("\n" * 5)  # line spacing
-display_log([], 0, "Ready", cv2_device, str(torch_device))
-
-
+#print("\n" * 5)  # line spacing
+#display_log([], 0, "Ready", cv2_device, str(torch_device))
 
 
 # LOADING DATA FROM DATA.PT FILE ===================================
@@ -287,6 +388,21 @@ name_list = load_data[1]
 # MAIN LOOP =======================================================
 while cap.isOpened():
 
+    # Resize windows if terminal dimensions change
+    # Get the current window dimensions
+    height, width = win.getmaxyx()
+    
+    # Recreate windows if resized
+    if height < 20 or width < 1:
+        break  # Optionally handle very small dimensions
+
+    client_win = win.subwin(min(16, height - 3), width - 1, 3, 0)  # Adjusted to place below the title
+    log_win = win.subwin(height - 19, width - 1, 19, 0)  # Adjusted for log window
+    
+    # Draw the title each iteration (to handle resizing)
+    draw_title(win, "Face Recognition System")
+
+    
     ret, frame = cap.read()
     if not ret:
         break
@@ -298,6 +414,8 @@ while cap.isOpened():
     faces, boxes = fast_mtcnn([frame_rgb])  # Detect faces
     
     unregistered_person_in_cam1 = False
+    client_win.clear()
+
 
     if faces:
         gpu_faces = [cv2.cuda_GpuMat() for _ in faces] #Resize faces
@@ -351,12 +469,32 @@ while cap.isOpened():
 
         # Error handling without interruption
         except Exception as e:
-            display_log(current_detected_names, len(faces), f"An Error has occured: {e}", cv2_device, str(torch_device))
+            status = f"An Error has occured: {e}"
+            # Call display_interface without 'win' as an argument
+            display_interface(client_win, log_win, faces, current_detected_names, status, cv2_device, str(torch_device))
+
+            #client_win.addstr("Known faces in frame: {} \n Detected Faces: {}\n Status: {}\n OpenCV Device: {}\n Torch Device: {}".format(
+            #current_detected_names, len(faces), status, cv2_device, str(torch_device)))            
+            #display_log(current_detected_names, len(faces), f"An Error has occured: {e}", cv2_device, str(torch_device))
             continue
-        display_log(current_detected_names, len(faces), "Detection completed", cv2_device, str(torch_device))
+
+        status = "Detection completed"
+        # Call display_interface without 'win' as an argument
+        display_interface(client_win, log_win, faces, current_detected_names, status, cv2_device, str(torch_device))
+
+        #client_win.addstr("Known faces in frame: {} \n Detected Faces: {}\n Status: {}\n OpenCV Device: {}\n Torch Device: {}".format(
+        #current_detected_names, len(faces), status, cv2_device, str(torch_device)))
 
     else:
-        display_log([], 0, "No faces detected", cv2_device, str(torch_device))
+        status = "No faces detected"
+        # Call display_interface without 'win' as an argument
+        display_interface(client_win, log_win, faces, current_detected_names, status, cv2_device, str(torch_device))
+
+        #client_win.addstr("Known faces in frame: {} \n Detected Faces: {}\n Status: {}\n OpenCV Device: {}\n Torch Device: {}".format(
+        #current_detected_names, len(faces), status, cv2_device, str(torch_device)))         
+        #display_log([], 0, "No faces detected", cv2_device, str(torch_device))
+
+    client_win.refresh()
 
     #Reset presences for undetected faces
     for name in face_presence.keys():
@@ -397,10 +535,14 @@ while cap.isOpened():
 
     # Send frame over NDI
     ndi.send_send_video_v2(ndi_send, video_frame)
-
-    #cv2.imshow("Face Detection", frame)
+    if cv_show_render:
+        cv2.imshow("Face Detection", frame)
+        
     if cv2.waitKey(1) & 0xFF == ord('q'):
         break
 
 cap.release()
 cv2.destroyAllWindows()
+cleanup_ndi()
+server.shutdown()
+server.server_close()
